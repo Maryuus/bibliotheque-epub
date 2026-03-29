@@ -190,11 +190,17 @@ def debug_html():
     """Return book result HTML from z-lib.id search to inspect structure."""
     r = requests.get("https://z-lib.id/s?q=dune&extension=epub", headers=HEADERS, timeout=15)
     soup = BeautifulSoup(r.text, "lxml")
-    # Remove scripts and styles to reduce noise
-    for tag in soup(["script", "style", "head"]):
-        tag.decompose()
-    body = str(soup.body)[:8000] if soup.body else r.text[5000:13000]
-    return Response(body, content_type="text/plain")
+    # Find all elements that look like book result containers
+    output = []
+    output.append(f"Total HTML size: {len(r.text)}\n")
+    output.append(f"Final URL: {r.url}\n\n")
+    # Look for common result container patterns
+    for selector in ["[class*='resItem']", "[class*='book']", "[class*='result']", "[class*='item']", "article", ".z-bookcard"]:
+        found = soup.select(selector)
+        if found:
+            output.append(f"=== {selector} ({len(found)} found) ===\n")
+            output.append(str(found[0])[:1000] + "\n\n")
+    return Response("\n".join(output), content_type="text/plain")
 
 
 @app.route("/api/test")
