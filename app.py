@@ -216,11 +216,13 @@ def test_sources():
     """Test which sources are reachable from this server's IP."""
     results = {}
     tests = {
-        "zlib_current": f"{ZLIB_BASE}/s?q=dune&extension=epub",
-        "zlib_cv": "https://z-lib.cv/s?q=dune&extension=epub",
-        "libgen_li": "https://libgen.li/index.php?req=dune&res=5",
-        "libgen_rs": "https://libgen.rs/search.php?req=dune&res=5",
-        "annas_archive": "https://annas-archive.gs/search?q=dune&ext=epub",
+        "library_lol": "https://library.lol/main/2F2DBA2A3AE42F8A90792C4B85B4B4D5",
+        "libgen_st": "https://libgen.st/search.php?req=dune&res=5",
+        "libgen_gs": "https://libgen.gs/index.php?req=dune&res=5",
+        "libgen_fun": "https://libgen.fun/search.php?req=dune&res=5",
+        "libgen_li_json": "https://libgen.li/json.php?ids=1&fields=id,title,md5,extension",
+        "annas_archive_gs": "https://annas-archive.gs/search?q=dune&ext=epub",
+        "annas_archive_org": "https://annas-archive.org/search?q=dune&ext=epub",
     }
     for name, url in tests.items():
         try:
