@@ -456,33 +456,21 @@
       panel.dataset.loaded = '1';
 
       try {
-        const res = await fetch('/api/download?url=' + encodeURIComponent(book.book_url));
+        const params = new URLSearchParams({ title: book.title, author: book.author || '' });
+        const res = await fetch('/api/download?' + params);
         const data = await res.json();
 
-        if (data.error || !data.links?.length) {
-          panel.innerHTML = `
-            <div class="dl-error">❌ Lien introuvable.</div>
-            <a class="dl-btn" href="${esc(book.book_url)}" target="_blank">
-              <span class="dl-icon">🌐</span>
-              <span class="dl-text">Ouvrir sur Z-Library</span>
-            </a>`;
-          return;
-        }
-
         let html = '';
-        data.links.forEach((link, i) => {
-          const proxyUrl = '/api/proxy?url=' + encodeURIComponent(link.url);
+        (data.links || []).forEach(link => {
           html += `
-            <a class="dl-btn" href="${esc(proxyUrl)}" download>
+            <a class="dl-btn" href="${esc(link.url)}" target="_blank" rel="noopener">
               <span class="dl-icon">⬇️</span>
-              <span class="dl-text">${esc(link.label || 'Télécharger EPUB')}</span>
+              <span class="dl-text">${esc(link.label)}</span>
             </a>`;
         });
-        html += `
-          <a class="dl-btn" href="${esc(book.book_url)}" target="_blank" style="opacity:0.6">
-            <span class="dl-icon">🌐</span>
-            <span class="dl-text">Voir sur Z-Library</span>
-          </a>`;
+        if (!html) {
+          html = `<div class="dl-error">❌ Aucun lien trouvé.</div>`;
+        }
         panel.innerHTML = html;
       } catch {
         panel.innerHTML = `<div class="dl-error">❌ Erreur réseau.</div>`;

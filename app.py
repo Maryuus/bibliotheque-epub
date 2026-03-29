@@ -105,27 +105,22 @@ def search_zlib(title, author, lang):
     return results
 
 
-def get_zlib_download(book_url):
-    """Get the direct EPUB download link from a z-lib.id book page."""
-    links = []
-    try:
-        r = zlib_session().get(book_url, timeout=15)
-        soup = BeautifulSoup(r.text, "lxml")
-
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            text = a.get_text(strip=True)
-            if "/dl/" in href or "download" in href.lower():
-                if not href.startswith("http"):
-                    href = ZLIB_BASE + href
-                label = text[:60] or href[:60]
-                if href not in [l["url"] for l in links]:
-                    links.append({"label": label, "url": href})
-
-    except Exception as e:
-        print(f"[zlib download] Error: {e}")
-
-    return links[:5]
+def get_download_links(title, author):
+    """Return direct browser links for the user to download the book."""
+    q = urllib.parse.quote(f"{title} {author}".strip())
+    links = [
+        {
+            "label": "Télécharger sur Anna's Archive",
+            "url": f"https://annas-archive.gs/search?q={q}&ext=epub",
+            "direct": False,
+        },
+        {
+            "label": "Télécharger sur Anna's Archive (.org)",
+            "url": f"https://annas-archive.org/search?q={q}&ext=epub",
+            "direct": False,
+        },
+    ]
+    return links
 
 
 # ── Flask routes ──────────────────────────────────────────────────────────────
@@ -154,18 +149,12 @@ def search():
 
 @app.route("/api/download")
 def get_download():
-    book_url = request.args.get("url", "").strip()
-    if not book_url or ZLIB_BASE not in book_url:
-        return jsonify({"error": "URL invalide"}), 400
-
-    try:
-        links = get_zlib_download(book_url)
-        if links:
-            return jsonify({"links": links})
-        return jsonify({"error": "Aucun lien trouvé"}), 404
-    except Exception as e:
-        print(f"[download] Error: {e}")
-        return jsonify({"error": "Erreur"}), 500
+    title = request.args.get("title", "").strip()
+    author = request.args.get("author", "").strip()
+    if not title and not author:
+        return jsonify({"error": "Titre manquant"}), 400
+    links = get_download_links(title, author)
+    return jsonify({"links": links})
 
 
 @app.route("/api/proxy")
