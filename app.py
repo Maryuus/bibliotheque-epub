@@ -16,70 +16,30 @@ HEADERS = {
 }
 
 ZLIB_BASE = "https://z-lib.cv"
-ZLIB_EMAIL = os.environ.get("ZLIB_EMAIL", "")
-ZLIB_PASSWORD = os.environ.get("ZLIB_PASSWORD", "")
+ZLIB_SESSION_COOKIE = os.environ.get("ZLIB_SESSION_COOKIE", "")
 
 LANG_NAMES = {
     "fr": ["french", "français", "francais"],
     "en": ["english"],
 }
 
-# Session management
 _session = None
 _session_lock = threading.Lock()
-_last_login = 0
-SESSION_TTL = 3600  # re-login every hour
 
 
 def get_session():
-    """Return an authenticated session, re-logging in if needed."""
-    global _session, _last_login
-
+    """Return a session with the Z-Library session cookie set."""
+    global _session
     with _session_lock:
-        now = time.time()
-        if _session is None or (now - _last_login) > SESSION_TTL:
-            _session = _create_session()
-            _last_login = now
+        if _session is None:
+            _session = requests.Session()
+            _session.headers.update(HEADERS)
+            if ZLIB_SESSION_COOKIE:
+                _session.cookies.set("z_lib_session", ZLIB_SESSION_COOKIE, domain="z-lib.cv")
+                print("[Session] Z-Library session cookie loaded")
+            else:
+                print("[Session] No Z-Library session cookie set")
         return _session
-
-
-def _create_session():
-    """Create a new requests Session, logging in if credentials are set."""
-    session = requests.Session()
-    session.headers.update(HEADERS)
-
-    if not ZLIB_EMAIL or not ZLIB_PASSWORD:
-        return session
-
-    try:
-        # Get CSRF token
-        r = session.get(f"{ZLIB_BASE}/login", timeout=12)
-        soup = BeautifulSoup(r.text, "lxml")
-        token_input = soup.find("input", {"name": "_token"})
-        if not token_input:
-            print("[Login] Could not find CSRF token")
-            return session
-        token = token_input["value"]
-
-        # Submit login form
-        r2 = session.post(
-            f"{ZLIB_BASE}/login",
-            data={"_token": token, "email": ZLIB_EMAIL, "password": ZLIB_PASSWORD},
-            headers={"Referer": f"{ZLIB_BASE}/login"},
-            timeout=12,
-            allow_redirects=True,
-        )
-
-        # Check if login worked by looking for profile indicators
-        if "logout" in r2.text.lower() or "/profile" in r2.text.lower():
-            print("[Login] Z-Library login successful")
-        else:
-            print("[Login] Z-Library login may have failed — check credentials")
-
-    except Exception as e:
-        print(f"[Login] Error: {e}")
-
-    return session
 
 
 def search_zlib(title, author, lang):
@@ -155,7 +115,7 @@ def get_download_url(book_slug, book_id):
     Get the direct EPUB download URL from Z-Library.
     Fetches the book page as a logged-in user and extracts the download href.
     """
-    if not ZLIB_EMAIL or not ZLIB_PASSWORD:
+    if not ZLIB_SESSION_COOKIE:
         return None, "login_required"
 
     try:
@@ -167,8 +127,6 @@ def get_download_url(book_slug, book_id):
 
         # Redirected to login = session expired
         if "z-lib.cv/login" in r.url:
-            global _last_login
-            _last_login = 0  # force re-login on next call
             return None, "login_required"
 
         soup = BeautifulSoup(r.text, "lxml")
@@ -193,8 +151,7 @@ def get_download_url(book_slug, book_id):
 
 @app.route("/")
 def index():
-    logged_in = bool(ZLIB_EMAIL and ZLIB_PASSWORD)
-    return render_template("index.html", logged_in=logged_in)
+    return render_template("index.html")
 
 
 @app.route("/api/search")
