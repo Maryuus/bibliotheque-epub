@@ -108,19 +108,16 @@ def search_zlib(title, author, lang):
 def get_download_links(title, author):
     """Return direct browser links for the user to download the book."""
     q = urllib.parse.quote(f"{title} {author}".strip())
-    links = [
+    return [
         {
-            "label": "Télécharger sur Anna's Archive",
-            "url": f"https://annas-archive.gs/search?q={q}&ext=epub",
-            "direct": False,
+            "label": "Libgen — Téléchargement direct",
+            "url": f"https://libgen.li/index.php?req={q}&res=25&ext=epub&filesuns=all",
         },
         {
-            "label": "Télécharger sur Anna's Archive (.org)",
-            "url": f"https://annas-archive.org/search?q={q}&ext=epub",
-            "direct": False,
+            "label": "Anna's Archive",
+            "url": f"https://annas-archive.gs/search?q={q}&ext=epub",
         },
     ]
-    return links
 
 
 # ── Flask routes ──────────────────────────────────────────────────────────────
