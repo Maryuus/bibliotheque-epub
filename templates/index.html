@@ -442,22 +442,10 @@
     }
 
     function dlLinks(book) {
-      const q = encodeURIComponent((book.title + ' ' + (book.author || '')).trim());
-      return `
-        <a class="dl-btn" href="https://annas-archive.gs/search?q=${q}&ext=epub" target="_blank" rel="noopener noreferrer">
-          <span class="dl-icon">⬇️</span>
-          <div><div class="dl-text">Anna's Archive</div></div>
-        </a>
-        <a class="dl-btn" href="https://libgen.li/index.php?req=${q}&res=10&ext=epub&filesuns=all" target="_blank" rel="noopener noreferrer">
-          <span class="dl-icon">⬇️</span>
-          <div>
-            <div class="dl-text">Libgen</div>
-            <div class="dl-note">Clique sur le titre → bouton vert GET → premier lien</div>
-          </div>
-        </a>`;
+      return `<div class="dl-loading"><div class="mini-spin"></div> Recherche du fichier…</div>`;
     }
 
-    function toggleCard(card, book, idx) {
+    async function toggleCard(card, book, idx) {
       const panel = document.getElementById(`dl-${idx}`);
       const isOpen = panel.classList.contains('open');
 
@@ -468,6 +456,34 @@
 
       card.classList.add('open');
       panel.classList.add('open');
+
+      if (panel.dataset.loaded) return;
+      panel.dataset.loaded = '1';
+
+      const params = new URLSearchParams({ title: book.title, author: book.author || '' });
+      try {
+        const res = await fetch('/api/download?' + params);
+        const data = await res.json();
+
+        if (data.error === 'tor_not_ready') {
+          panel.innerHTML = `<div class="dl-error">⏳ Connexion sécurisée en cours… Réessaie dans 30 secondes.</div>`;
+          panel.dataset.loaded = '';
+          return;
+        }
+        if (data.error || !data.url) {
+          panel.innerHTML = `<div class="dl-error">❌ Introuvable sur Libgen.</div>`;
+          return;
+        }
+
+        const proxyUrl = '/api/proxy?url=' + encodeURIComponent(data.url);
+        panel.innerHTML = `
+          <a class="dl-btn" href="${esc(proxyUrl)}" download="${esc(data.title || 'livre')}.epub">
+            <span class="dl-icon">⬇️</span>
+            <div><div class="dl-text">Télécharger EPUB</div></div>
+          </a>`;
+      } catch {
+        panel.innerHTML = `<div class="dl-error">❌ Erreur réseau.</div>`;
+      }
     }
 
     function el(tag, cls, html) {

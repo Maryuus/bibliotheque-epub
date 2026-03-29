@@ -1,6 +1,8 @@
 FROM python:3.11-slim-bookworm
 
-ARG CACHEBUST=2
+ARG CACHEBUST=4
+
+RUN apt-get update && apt-get install -y tor --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -9,6 +11,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-EXPOSE 8080
-
-CMD gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+CMD tor -f /etc/tor/torrc & sleep 12 && gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120

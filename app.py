@@ -4,11 +4,14 @@ from bs4 import BeautifulSoup
 import urllib.parse
 import re
 import os
+import threading
+import time
 
 app = Flask(__name__)
 
 # ── Source URLs — update here if a domain changes ────────────────────────────
 ZLIB_BASE = "https://z-lib.cv"   # Change this if z-lib moves to a new domain
+LIBGEN_BASE = "https://libgen.li"
 # ─────────────────────────────────────────────────────────────────────────────
 
 HEADERS = {
@@ -18,6 +21,30 @@ HEADERS = {
         "Chrome/124.0.0.0 Safari/537.36"
     )
 }
+
+TOR_PROXIES = {
+    "http":  "socks5h://127.0.0.1:9050",
+    "https": "socks5h://127.0.0.1:9050",
+}
+
+_tor_ready = False
+
+def _wait_for_tor():
+    global _tor_ready
+    for _ in range(30):
+        try:
+            r = requests.get("https://check.torproject.org/api/ip",
+                             proxies=TOR_PROXIES, timeout=5)
+            if r.ok:
+                print("[Tor] Ready —", r.json())
+                _tor_ready = True
+                return
+        except Exception:
+            pass
+        time.sleep(2)
+    print("[Tor] Not available")
+
+threading.Thread(target=_wait_for_tor, daemon=True).start()
 
 
 def zlib_session():
@@ -105,39 +132,50 @@ def search_zlib(title, author, lang):
     return results
 
 
-def get_download_links(title, author):
-    """Search Open Library for a direct EPUB, fallback to browser links."""
-    links = []
-
-    # 1. Try Open Library (legitimate, accessible from Railway)
-    try:
-        q = urllib.parse.quote(f"{title} {author}".strip())
-        ol = requests.get(
-            f"https://openlibrary.org/search.json?q={q}&has_fulltext=true&limit=5&fields=key,title,ia",
-            timeout=8,
-        ).json()
-        for doc in ol.get("docs", []):
-            for ia_id in doc.get("ia", [])[:1]:
-                links.append({
-                    "label": f"Télécharger — Open Library (gratuit)",
-                    "url": f"https://archive.org/details/{ia_id}",
-                    "note": "Crée un compte gratuit sur archive.org si demandé",
-                })
-                break
-            if links:
-                break
-    except Exception as e:
-        print(f"[openlibrary] {e}")
-
-    # 2. Always add a libgen fallback (works from the user's browser)
+def search_libgen_tor(title, author):
+    """Search libgen.li via Tor, return list of {title, md5}."""
+    if not _tor_ready:
+        return []
     q = urllib.parse.quote(f"{title} {author}".strip())
-    links.append({
-        "label": "Libgen (ouvre dans ton navigateur)",
-        "url": f"https://libgen.li/index.php?req={q}&res=10&ext=epub&filesuns=all",
-        "note": "Clique sur le titre du livre → bouton vert GET → premier lien",
-    })
+    url = (f"{LIBGEN_BASE}/index.php?req={q}&res=10&ext=epub&filesuns=all"
+           "&columns[]=t&columns[]=a&columns[]=s&columns[]=y&columns[]=p&columns[]=i"
+           "&objects[]=f&objects[]=e&topics[]=l&topics[]=f")
+    try:
+        r = requests.get(url, headers=HEADERS, proxies=TOR_PROXIES, timeout=25)
+        soup = BeautifulSoup(r.text, "lxml")
+        results = []
+        for row in soup.select("table.c tr"):
+            cells = row.select("td")
+            if len(cells) < 9:
+                continue
+            for a in cells[2].select("a[href]"):
+                href = a.get("href", "")
+                m = re.search(r"md5=([a-fA-F0-9]{32})", href, re.I)
+                if m:
+                    results.append({"title": a.get_text(strip=True), "md5": m.group(1)})
+                    break
+        return results[:5]
+    except Exception as e:
+        print(f"[libgen tor] {e}")
+        return []
 
-    return links
+
+def get_epub_url_tor(md5):
+    """Fetch the actual EPUB download URL from libgen ads.php via Tor."""
+    if not _tor_ready:
+        return None
+    try:
+        r = requests.get(f"{LIBGEN_BASE}/ads.php?md5={md5}",
+                         headers=HEADERS, proxies=TOR_PROXIES, timeout=20)
+        soup = BeautifulSoup(r.text, "lxml")
+        for a in soup.select("a[href*='get.php']"):
+            href = a["href"]
+            if not href.startswith("http"):
+                href = LIBGEN_BASE + "/" + href.lstrip("/")
+            return href
+    except Exception as e:
+        print(f"[libgen ads] {e}")
+    return None
 
 
 # ── Flask routes ──────────────────────────────────────────────────────────────
@@ -170,8 +208,20 @@ def get_download():
     author = request.args.get("author", "").strip()
     if not title and not author:
         return jsonify({"error": "Titre manquant"}), 400
-    links = get_download_links(title, author)
-    return jsonify({"links": links})
+
+    if not _tor_ready:
+        return jsonify({"error": "tor_not_ready"}), 503
+
+    books = search_libgen_tor(title, author)
+    if not books:
+        return jsonify({"error": "Introuvable sur Libgen"}), 404
+
+    md5 = books[0]["md5"]
+    epub_url = get_epub_url_tor(md5)
+    if not epub_url:
+        return jsonify({"error": "Lien introuvable"}), 404
+
+    return jsonify({"url": epub_url, "title": books[0]["title"]})
 
 
 @app.route("/api/proxy")
@@ -184,7 +234,8 @@ def proxy_download():
         return "URL non autorisée", 403
 
     try:
-        r = zlib_session().get(url, stream=True, timeout=60)
+        proxies = TOR_PROXIES if "libgen" in url else None
+        r = zlib_session().get(url, stream=True, timeout=60, proxies=proxies)
         content_type = r.headers.get("Content-Type", "application/epub+zip")
         content_disp = r.headers.get(
             "Content-Disposition", "attachment; filename=book.epub"
