@@ -6,6 +6,7 @@ import re
 import os
 import threading
 import time
+import subprocess
 
 app = Flask(__name__)
 
@@ -29,9 +30,16 @@ TOR_PROXIES = {
 
 _tor_ready = False
 
-def _wait_for_tor():
+def _start_tor():
     global _tor_ready
-    for _ in range(30):
+    try:
+        subprocess.Popen(["tor"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("[Tor] Process started, waiting for circuits...")
+    except FileNotFoundError:
+        print("[Tor] tor binary not found")
+        return
+    for _ in range(40):
+        time.sleep(3)
         try:
             r = requests.get("https://check.torproject.org/api/ip",
                              proxies=TOR_PROXIES, timeout=5)
@@ -41,10 +49,9 @@ def _wait_for_tor():
                 return
         except Exception:
             pass
-        time.sleep(2)
-    print("[Tor] Not available")
+    print("[Tor] Failed to connect")
 
-threading.Thread(target=_wait_for_tor, daemon=True).start()
+threading.Thread(target=_start_tor, daemon=True).start()
 
 
 def zlib_session():
