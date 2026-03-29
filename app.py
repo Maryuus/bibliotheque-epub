@@ -139,50 +139,36 @@ def search_zlib(title, author, lang):
     return results
 
 
-def search_libgen_tor(title, author):
-    """Search libgen.li via Tor, return list of {title, md5}."""
+def find_epub_url_tor(title, author):
+    """Search libgen.li via Tor and return a direct get.php download URL."""
     if not _tor_ready:
-        return []
+        return None, None
     q = urllib.parse.quote(f"{title} {author}".strip())
-    url = (f"{LIBGEN_BASE}/index.php?req={q}&res=10&ext=epub&filesuns=all"
-           "&columns[]=t&columns[]=a&columns[]=s&columns[]=y&columns[]=p&columns[]=i"
-           "&objects[]=f&objects[]=e&topics[]=l&topics[]=f")
+    url = f"{LIBGEN_BASE}/index.php?req={q}&res=10&ext=epub&filesuns=all"
     try:
         r = requests.get(url, headers=HEADERS, proxies=TOR_PROXIES, timeout=25)
         soup = BeautifulSoup(r.text, "lxml")
-        results = []
-        for row in soup.select("table.c tr"):
+
+        # Extract title from table
+        book_title = title
+        for row in soup.select("table.table-striped tr"):
             cells = row.select("td")
-            if len(cells) < 9:
-                continue
-            for a in cells[2].select("a[href]"):
-                href = a.get("href", "")
-                m = re.search(r"md5=([a-fA-F0-9]{32})", href, re.I)
-                if m:
-                    results.append({"title": a.get_text(strip=True), "md5": m.group(1)})
+            if len(cells) >= 3:
+                t = cells[2].get_text(strip=True)
+                if t:
+                    book_title = t[:100]
                     break
-        return results[:5]
-    except Exception as e:
-        print(f"[libgen tor] {e}")
-        return []
 
-
-def get_epub_url_tor(md5):
-    """Fetch the actual EPUB download URL from libgen ads.php via Tor."""
-    if not _tor_ready:
-        return None
-    try:
-        r = requests.get(f"{LIBGEN_BASE}/ads.php?md5={md5}",
-                         headers=HEADERS, proxies=TOR_PROXIES, timeout=20)
-        soup = BeautifulSoup(r.text, "lxml")
-        for a in soup.select("a[href*='get.php']"):
+        # Find first get.php direct download link
+        for a in soup.select("a[href*='get.php?md5']"):
             href = a["href"]
             if not href.startswith("http"):
                 href = LIBGEN_BASE + "/" + href.lstrip("/")
-            return href
+            return href, book_title
+
     except Exception as e:
-        print(f"[libgen ads] {e}")
-    return None
+        print(f"[libgen tor] {e}")
+    return None, None
 
 
 # ── Flask routes ──────────────────────────────────────────────────────────────
@@ -219,16 +205,11 @@ def get_download():
     if not _tor_ready:
         return jsonify({"error": "tor_not_ready"}), 503
 
-    books = search_libgen_tor(title, author)
-    if not books:
+    epub_url, book_title = find_epub_url_tor(title, author)
+    if not epub_url:
         return jsonify({"error": "Introuvable sur Libgen"}), 404
 
-    md5 = books[0]["md5"]
-    epub_url = get_epub_url_tor(md5)
-    if not epub_url:
-        return jsonify({"error": "Lien introuvable"}), 404
-
-    return jsonify({"url": epub_url, "title": books[0]["title"]})
+    return jsonify({"url": epub_url, "title": book_title})
 
 
 @app.route("/api/proxy")
