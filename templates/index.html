@@ -432,7 +432,7 @@
             </div>
           </div>
           <div class="dl-panel" id="dl-${idx}">
-            <div class="dl-loading"><div class="mini-spin"></div> Chargement du lien…</div>
+            ${dlLinks(book)}
           </div>
         `;
 
@@ -441,7 +441,23 @@
       });
     }
 
-    async function toggleCard(card, book, idx) {
+    function dlLinks(book) {
+      const q = encodeURIComponent((book.title + ' ' + (book.author || '')).trim());
+      return `
+        <a class="dl-btn" href="https://annas-archive.gs/search?q=${q}&ext=epub" target="_blank" rel="noopener noreferrer">
+          <span class="dl-icon">⬇️</span>
+          <div><div class="dl-text">Anna's Archive</div></div>
+        </a>
+        <a class="dl-btn" href="https://libgen.li/index.php?req=${q}&res=10&ext=epub&filesuns=all" target="_blank" rel="noopener noreferrer">
+          <span class="dl-icon">⬇️</span>
+          <div>
+            <div class="dl-text">Libgen</div>
+            <div class="dl-note">Clique sur le titre → bouton vert GET → premier lien</div>
+          </div>
+        </a>`;
+    }
+
+    function toggleCard(card, book, idx) {
       const panel = document.getElementById(`dl-${idx}`);
       const isOpen = panel.classList.contains('open');
 
@@ -452,33 +468,6 @@
 
       card.classList.add('open');
       panel.classList.add('open');
-
-      if (panel.dataset.loaded) return;
-      panel.dataset.loaded = '1';
-
-      try {
-        const params = new URLSearchParams({ title: book.title, author: book.author || '' });
-        const res = await fetch('/api/download?' + params);
-        const data = await res.json();
-
-        let html = '';
-        (data.links || []).forEach(link => {
-          html += `
-            <a class="dl-btn" href="${esc(link.url)}" target="_blank" rel="noopener noreferrer">
-              <span class="dl-icon">⬇️</span>
-              <div>
-                <div class="dl-text">${esc(link.label)}</div>
-                ${link.note ? `<div class="dl-note">${esc(link.note)}</div>` : ''}
-              </div>
-            </a>`;
-        });
-        if (!html) {
-          html = `<div class="dl-error">❌ Aucun lien trouvé.</div>`;
-        }
-        panel.innerHTML = html;
-      } catch {
-        panel.innerHTML = `<div class="dl-error">❌ Erreur réseau.</div>`;
-      }
     }
 
     function el(tag, cls, html) {
