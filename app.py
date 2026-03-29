@@ -19,6 +19,16 @@ HEADERS = {
     )
 }
 
+
+def zlib_session():
+    """Return requests.Session with z-lib session cookie if configured."""
+    s = requests.Session()
+    s.headers.update(HEADERS)
+    cookie = os.environ.get("ZLIB_SESSION", "")
+    if cookie:
+        s.cookies.set("z_lib_session", cookie, domain="z-lib.id")
+    return s
+
 LANG_NAMES = {
     "fr": ["french", "français", "francais"],
     "en": ["english"],
@@ -32,7 +42,7 @@ def search_zlib(title, author, lang):
     url = f"{ZLIB_BASE}/s?q={urllib.parse.quote(query)}&extension=epub"
 
     try:
-        r = requests.get(url, headers=HEADERS, timeout=15)
+        r = zlib_session().get(url, timeout=15)
         soup = BeautifulSoup(r.text, "lxml")
 
         for item in soup.select(".resItemBox"):
@@ -98,7 +108,7 @@ def get_zlib_download(book_url):
     """Get the direct EPUB download link from a z-lib.id book page."""
     links = []
     try:
-        r = requests.get(book_url, headers=HEADERS, timeout=15)
+        r = zlib_session().get(book_url, timeout=15)
         soup = BeautifulSoup(r.text, "lxml")
 
         for a in soup.find_all("a", href=True):
@@ -167,7 +177,7 @@ def proxy_download():
         return "URL non autorisée", 403
 
     try:
-        r = requests.get(url, headers=HEADERS, stream=True, timeout=60)
+        r = zlib_session().get(url, stream=True, timeout=60)
         content_type = r.headers.get("Content-Type", "application/epub+zip")
         content_disp = r.headers.get(
             "Content-Disposition", "attachment; filename=book.epub"
@@ -192,7 +202,7 @@ def proxy_download():
 @app.route("/api/debug")
 def debug_html():
     """Debug: show all links on a z-lib book page."""
-    r = requests.get(f"{ZLIB_BASE}/book/dune-674762", headers=HEADERS, timeout=15)
+    r = zlib_session().get(f"{ZLIB_BASE}/book/dune-674762", timeout=15)
     soup = BeautifulSoup(r.text, "lxml")
     output = [f"HTML size: {len(r.text)}, URL: {r.url}\n", "All links:\n"]
     for a in soup.find_all("a", href=True)[:40]:
