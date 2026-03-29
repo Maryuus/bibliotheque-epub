@@ -457,11 +457,27 @@
       panel.dataset.loaded = '1';
 
       try {
-        const res = await fetch('/api/download?md5=' + encodeURIComponent(book.md5));
+        const params = new URLSearchParams({ slug: book.slug, book_id: book.book_id || '' });
+        const res = await fetch('/api/download?' + params);
         const data = await res.json();
 
+        if (res.status === 403 && data.error === 'login_required') {
+          panel.innerHTML = `
+            <div class="dl-error">🔒 Compte Z-Library requis pour télécharger.</div>
+            <a class="dl-btn" href="${esc(book.detail_url)}" target="_blank">
+              <span class="dl-icon">🌐</span>
+              <span class="dl-text">Ouvrir sur Z-Library</span>
+            </a>`;
+          return;
+        }
+
         if (data.error || !data.url) {
-          panel.innerHTML = `<div class="dl-error">❌ Lien introuvable. Réessayez plus tard.</div>`;
+          panel.innerHTML = `
+            <div class="dl-error">❌ Lien introuvable.</div>
+            <a class="dl-btn" href="${esc(book.detail_url)}" target="_blank">
+              <span class="dl-icon">🌐</span>
+              <span class="dl-text">Ouvrir sur Z-Library</span>
+            </a>`;
           return;
         }
 
@@ -470,11 +486,10 @@
           <a class="dl-btn" href="${esc(proxyUrl)}" download>
             <span class="dl-icon">⬇️</span>
             <span class="dl-text">Télécharger EPUB</span>
-            <span class="dl-size">${esc(book.size || '')}</span>
           </a>
           <a class="dl-btn" href="${esc(data.url)}" target="_blank">
             <span class="dl-icon">🔗</span>
-            <span class="dl-text">Lien direct (ouvre dans le navigateur)</span>
+            <span class="dl-text">Lien direct</span>
           </a>
         `;
       } catch {

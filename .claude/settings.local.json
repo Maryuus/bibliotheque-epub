@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip3 --version)",
+      "Bash(pip3 install:*)",
+      "Bash(timeout 5 python3 -c \"from app import app; print\\('Import OK'\\)\" 2>&1)",
+      "Bash(ip addr:*)",
+      "Bash(python3:*)",
+      "Bash(curl -s \"http://localhost:5000/api/search?title=harry+potter&author=rowling&lang=fr\")",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(gh auth:*)",
+      "Bash(gh repo:*)",
+      "Bash(npm install:*)",
+      "Bash(curl -fsSL https://github.com/railwayapp/cli/releases/download/v4.35.0/railway-v4.35.0-x86_64-unknown-linux-gnu.tar.gz -o /tmp/railway.tar.gz)",
+      "Bash(__NEW_LINE_df96a1e475cd6ddb__ tar:*)",
+      "Bash(__NEW_LINE_df96a1e475cd6ddb__ mkdir:*)",
+      "Bash(__NEW_LINE_df96a1e475cd6ddb__ mv:*)",
+      "Bash(__NEW_LINE_df96a1e475cd6ddb__ chmod:*)",
+      "Bash(~/.local/bin/railway login:*)",
+      "Bash(~/.local/bin/railway init:*)",
+      "Bash(~/.local/bin/railway up:*)",
+      "Bash(~/.local/bin/railway domain:*)",
+      "Bash(curl:*)",
+      "Bash(~/.local/bin/railway service:*)",
+      "Bash(~/.local/bin/railway status:*)",
+      "Bash(~/.local/bin/railway logs:*)"
+    ]
+  }
+}
