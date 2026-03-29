@@ -32,16 +32,17 @@ def search_zlib(title, author, lang):
         soup = BeautifulSoup(r.text, "lxml")
 
         for item in soup.select(".resItemBox"):
-            # Title
-            title_el = item.select_one("h3 a, .itemTitle a, a[href*='/book/']")
+            # Title & book URL
+            title_el = item.select_one("h3[itemprop='name'] a, h3 a")
             book_title = title_el.get_text(strip=True) if title_el else ""
-            book_url = title_el["href"] if title_el and title_el.get("href") else ""
-            if book_url and not book_url.startswith("http"):
-                book_url = "https://z-lib.id" + book_url
+            book_link = item.select_one("a[href^='/book/']")
+            book_url = ""
+            if book_link:
+                book_url = "https://z-lib.id" + book_link["href"]
 
             # Author
-            author_el = item.select_one(".authors a, .itemAuthors a")
-            book_author = author_el.get_text(strip=True) if author_el else ""
+            author_el = item.select_one(".authors, .itemAuthors, [itemprop='author']")
+            book_author = author_el.get_text(strip=True)[:80] if author_el else ""
 
             # Language
             lang_text = item.get_text(" ", strip=True).lower()
@@ -51,15 +52,13 @@ def search_zlib(title, author, lang):
             elif "english" in lang_text:
                 language = "English"
 
-            # Cover
-            cover_img = item.select_one("img")
+            # Cover (lazy-loaded via data-src)
+            cover_img = item.select_one("img.cover, img[data-src]")
             cover = ""
             if cover_img:
-                cover = cover_img.get("src") or cover_img.get("data-src") or ""
-                if cover and not cover.startswith("http"):
-                    cover = "https://z-lib.id" + cover
+                cover = cover_img.get("data-src") or cover_img.get("src") or ""
 
-            # Year / size / publisher chips
+            # Year
             year = ""
             year_el = item.select_one(".property_year .property_value")
             if year_el:
@@ -187,19 +186,22 @@ def proxy_download():
 
 @app.route("/api/debug")
 def debug_html():
-    """Return book result HTML from z-lib.id search to inspect structure."""
+    """Debug: run search logic and show what gets parsed."""
     r = requests.get("https://z-lib.id/s?q=dune&extension=epub", headers=HEADERS, timeout=15)
     soup = BeautifulSoup(r.text, "lxml")
-    # Find all elements that look like book result containers
-    output = []
-    output.append(f"Total HTML size: {len(r.text)}\n")
-    output.append(f"Final URL: {r.url}\n\n")
-    # Look for common result container patterns
-    for selector in ["[class*='resItem']", "[class*='book']", "[class*='result']", "[class*='item']", "article", ".z-bookcard"]:
-        found = soup.select(selector)
-        if found:
-            output.append(f"=== {selector} ({len(found)} found) ===\n")
-            output.append(str(found[0])[:1000] + "\n\n")
+    output = [f"HTML size: {len(r.text)}, URL: {r.url}\n"]
+    items = soup.select(".resItemBox")
+    output.append(f"resItemBox found: {len(items)}\n")
+    for i, item in enumerate(items[:3]):
+        title_el = item.select_one("h3[itemprop='name'] a, h3 a")
+        cover_img = item.select_one("img.cover, img[data-src]")
+        author_el = item.select_one(".authors, .itemAuthors, [itemprop='author']")
+        book_link = item.select_one("a[href^='/book/']")
+        output.append(f"\n--- Item {i+1} ---")
+        output.append(f"title_el: {title_el}")
+        output.append(f"book_link href: {book_link['href'] if book_link else None}")
+        output.append(f"cover data-src: {cover_img.get('data-src') if cover_img else None}")
+        output.append(f"author_el text: {author_el.get_text(strip=True)[:80] if author_el else None}")
     return Response("\n".join(output), content_type="text/plain")
 
 
