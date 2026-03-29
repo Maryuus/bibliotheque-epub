@@ -144,7 +144,7 @@ def find_epub_url_tor(title, author):
     if not _tor_ready:
         return None, None
     q = urllib.parse.quote(f"{title} {author}".strip())
-    url = f"{LIBGEN_BASE}/index.php?req={q}&res=10&ext=epub&filesuns=all"
+    url = f"{LIBGEN_BASE}/index.php?req={q}&res=10&ext=epub"
     try:
         r = requests.get(url, headers=HEADERS, proxies=TOR_PROXIES, timeout=25)
         soup = BeautifulSoup(r.text, "lxml")
@@ -159,12 +159,29 @@ def find_epub_url_tor(title, author):
                     book_title = t[:100]
                     break
 
-        # Find first get.php direct download link
-        for a in soup.select("a[href*='get.php?md5']"):
+        # Try direct get.php link first
+        for a in soup.select("a[href*='get.php']"):
             href = a["href"]
             if not href.startswith("http"):
                 href = LIBGEN_BASE + "/" + href.lstrip("/")
             return href, book_title
+
+        # Fallback: go through ads.php to find the real link
+        for a in soup.select("a[href*='ads.php?md5']"):
+            ads_href = a["href"]
+            if not ads_href.startswith("http"):
+                ads_href = LIBGEN_BASE + "/" + ads_href.lstrip("/")
+            try:
+                r2 = requests.get(ads_href, headers=HEADERS, proxies=TOR_PROXIES, timeout=20)
+                soup2 = BeautifulSoup(r2.text, "lxml")
+                for a2 in soup2.select("a[href*='get.php']"):
+                    href2 = a2["href"]
+                    if not href2.startswith("http"):
+                        href2 = LIBGEN_BASE + "/" + href2.lstrip("/")
+                    return href2, book_title
+            except Exception as e2:
+                print(f"[libgen ads] {e2}")
+            break  # Only try first ads link
 
     except Exception as e:
         print(f"[libgen tor] {e}")
