@@ -257,6 +257,29 @@ def proxy_download():
         return f"Erreur: {e}", 500
 
 
+@app.route("/api/tor-test")
+def tor_test():
+    out = [f"tor_ready: {_tor_ready}"]
+    # Test Tor connectivity
+    try:
+        r = requests.get("https://check.torproject.org/api/ip", proxies=TOR_PROXIES, timeout=10)
+        out.append(f"Tor IP check: {r.status_code} {r.text[:100]}")
+    except Exception as e:
+        out.append(f"Tor IP check error: {e}")
+    # Test libgen via Tor
+    try:
+        r = requests.get(f"{LIBGEN_BASE}/index.php?req=dune&res=5&ext=epub",
+                         headers=HEADERS, proxies=TOR_PROXIES, timeout=20)
+        out.append(f"libgen via Tor: {r.status_code} size={len(r.text)}")
+        soup = BeautifulSoup(r.text, "lxml")
+        rows = soup.select("table.c tr")
+        out.append(f"table rows found: {len(rows)}")
+        out.append(f"HTML snippet: {r.text[2000:3000]}")
+    except Exception as e:
+        out.append(f"libgen via Tor error: {e}")
+    return Response("\n".join(out), content_type="text/plain")
+
+
 @app.route("/api/debug")
 def debug_html():
     """Debug: show all links on a z-lib book page."""
