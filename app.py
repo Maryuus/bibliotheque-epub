@@ -262,14 +262,22 @@ def tor_test():
         soup = BeautifulSoup(r.text, "lxml")
         rows = soup.select("table.c tr")
         out.append(f"table rows found: {len(rows)}")
-        # Find all tables and their classes
-        for t in soup.find_all("table"):
-            out.append(f"table class={t.get('class')} rows={len(t.find_all('tr'))}")
-        # Look for any md5 links
-        md5_links = soup.select("a[href*='md5']")
-        out.append(f"md5 links: {len(md5_links)}")
-        for a in md5_links[:3]:
-            out.append(f"  {a.get('href','')[:80]} — {a.get_text(strip=True)[:40]}")
+        # Test exact URL used by find_epub_url_tor
+        q2 = urllib.parse.quote("dune frank herbert")
+        url2 = f"{LIBGEN_BASE}/index.php?req={q2}&res=10&ext=epub&filesuns=all"
+        r2 = requests.get(url2, headers=HEADERS, proxies=TOR_PROXIES, timeout=25)
+        soup2 = BeautifulSoup(r2.text, "lxml")
+        out.append(f"\nExact search URL: {url2}")
+        out.append(f"Status: {r2.status_code} size={len(r2.text)}")
+        get_links = soup2.select("a[href*='get.php']")
+        out.append(f"get.php links: {len(get_links)}")
+        for a in get_links[:3]:
+            out.append(f"  href={a.get('href','')[:80]}")
+        # Also try broader selector
+        all_md5 = soup2.select("a[href*='md5']")
+        out.append(f"any md5 links: {len(all_md5)}")
+        for a in all_md5[:3]:
+            out.append(f"  href={a.get('href','')[:80]}")
     except Exception as e:
         out.append(f"libgen via Tor error: {e}")
     return Response("\n".join(out), content_type="text/plain")
