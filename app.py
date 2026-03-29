@@ -325,30 +325,34 @@ def proxy_download():
             headers={
                 "Content-Type": content_type,
                 "Content-Disposition": content_disp,
-
-@app.route('/api/test')
-def test_sources():
-    import requests as req
-    hdrs = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36'}
-    tests = {
-        'libgen_li': 'https://libgen.li/index.php?req=dune&res=5&ext=epub',
-        'libgen_li_json': 'https://libgen.li/json.php?ids=1,2&fields=Title,MD5,Extension',
-        'annas_gs': 'https://annas-archive.gs/search?q=dune&ext=epub',
-    }
-    results = {}
-    for name, url in tests.items():
-        try:
-            r = req.get(url, headers=hdrs, timeout=8)
-            results[name] = f'{r.status_code} len={len(r.text)}'
-        except Exception as e:
-            results[name] = f'ERROR {str(e)[:60]}'
-    from flask import jsonify
-    return jsonify(results)
-
             },
         )
     except Exception as e:
         return f"Erreur: {e}", 500
+
+
+@app.route("/api/test")
+def test_sources():
+    """Test which sources are reachable from this server's IP."""
+    results = {}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+    }
+    tests = {
+        "libgen_li": "https://libgen.li/index.php?req=test&res=25&filesuns=all",
+        "libgen_json": "https://libgen.li/json.php?ids=1&fields=id,title",
+        "annas_archive": "https://annas-archive.gs/search?q=test&ext=epub",
+        "zlib_id": "https://z-lib.id/s?q=test&extension=epub",
+        "zlib_cv": "https://z-lib.cv/s?q=test&extension=epub",
+        "libgen_rs": "https://libgen.rs/search.php?req=test&lg_topic=libgen&res=25",
+    }
+    for name, url in tests.items():
+        try:
+            r = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
+            results[name] = {"status": r.status_code, "size": len(r.content), "url": r.url}
+        except Exception as e:
+            results[name] = {"error": str(e)}
+    return jsonify(results)
 
 
 if __name__ == "__main__":
