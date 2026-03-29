@@ -194,11 +194,9 @@ def debug_html():
     """Debug: show all links on a z-lib book page."""
     r = requests.get(f"{ZLIB_BASE}/book/dune-674762", headers=HEADERS, timeout=15)
     soup = BeautifulSoup(r.text, "lxml")
-    output = [f"HTML size: {len(r.text)}, URL: {r.url}\n", "All hrefs containing 'dl', 'download', 'get':\n"]
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if any(x in href.lower() for x in ["/dl/", "download", "/get", "epub"]):
-            output.append(f"  text={a.get_text(strip=True)[:50]!r}  href={href}")
+    output = [f"HTML size: {len(r.text)}, URL: {r.url}\n", "All links:\n"]
+    for a in soup.find_all("a", href=True)[:40]:
+        output.append(f"  text={a.get_text(strip=True)[:40]!r}  href={a['href'][:80]}")
     return Response("\n".join(output), content_type="text/plain")
 
 
