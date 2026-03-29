@@ -185,6 +185,13 @@ def proxy_download():
         return f"Erreur: {e}", 500
 
 
+@app.route("/api/debug")
+def debug_html():
+    """Return raw HTML from z-lib.id search to inspect structure."""
+    r = requests.get("https://z-lib.id/s?q=dune&extension=epub", headers=HEADERS, timeout=15)
+    return Response(r.text[:5000], content_type="text/plain")
+
+
 @app.route("/api/test")
 def test_sources():
     """Test which sources are reachable from this server's IP."""
