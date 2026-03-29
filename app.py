@@ -187,9 +187,14 @@ def proxy_download():
 
 @app.route("/api/debug")
 def debug_html():
-    """Return raw HTML from z-lib.id search to inspect structure."""
+    """Return book result HTML from z-lib.id search to inspect structure."""
     r = requests.get("https://z-lib.id/s?q=dune&extension=epub", headers=HEADERS, timeout=15)
-    return Response(r.text[:5000], content_type="text/plain")
+    soup = BeautifulSoup(r.text, "lxml")
+    # Remove scripts and styles to reduce noise
+    for tag in soup(["script", "style", "head"]):
+        tag.decompose()
+    body = str(soup.body)[:8000] if soup.body else r.text[5000:13000]
+    return Response(body, content_type="text/plain")
 
 
 @app.route("/api/test")
