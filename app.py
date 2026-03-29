@@ -7,6 +7,10 @@ import os
 
 app = Flask(__name__)
 
+# ── Source URLs — update here if a domain changes ────────────────────────────
+ZLIB_BASE = "https://z-lib.id"   # Change this if z-lib moves to a new domain
+# ─────────────────────────────────────────────────────────────────────────────
+
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -25,7 +29,7 @@ def search_zlib(title, author, lang):
     """Search z-lib.id for EPUB books."""
     results = []
     query = f"{title} {author}".strip()
-    url = f"https://z-lib.id/s?q={urllib.parse.quote(query)}&extension=epub"
+    url = f"{ZLIB_BASE}/s?q={urllib.parse.quote(query)}&extension=epub"
 
     try:
         r = requests.get(url, headers=HEADERS, timeout=15)
@@ -38,7 +42,7 @@ def search_zlib(title, author, lang):
             book_link = item.select_one("a[href^='/book/']")
             book_url = ""
             if book_link:
-                book_url = "https://z-lib.id" + book_link["href"]
+                book_url = ZLIB_BASE + book_link["href"]
 
             # Author
             author_el = item.select_one(".authors, .itemAuthors, [itemprop='author']")
@@ -102,7 +106,7 @@ def get_zlib_download(book_url):
             text = a.get_text(strip=True)
             if "/dl/" in href or "download" in href.lower():
                 if not href.startswith("http"):
-                    href = "https://z-lib.id" + href
+                    href = ZLIB_BASE + href
                 label = text[:60] or href[:60]
                 if href not in [l["url"] for l in links]:
                     links.append({"label": label, "url": href})
@@ -140,7 +144,7 @@ def search():
 @app.route("/api/download")
 def get_download():
     book_url = request.args.get("url", "").strip()
-    if not book_url or "z-lib.id" not in book_url:
+    if not book_url or ZLIB_BASE not in book_url:
         return jsonify({"error": "URL invalide"}), 400
 
     try:
@@ -157,7 +161,8 @@ def get_download():
 def proxy_download():
     """Proxy an EPUB download so the iPad gets the file directly."""
     url = request.args.get("url", "")
-    allowed = ["z-lib.id", "annas-archive.gs", "ipfs.io", "cloudflare-ipfs.com", "libgen"]
+    zlib_host = ZLIB_BASE.replace("https://", "").replace("http://", "")
+    allowed = [zlib_host, "annas-archive.gs", "ipfs.io", "cloudflare-ipfs.com", "libgen"]
     if not url or not any(a in url for a in allowed):
         return "URL non autorisée", 403
 
@@ -187,7 +192,7 @@ def proxy_download():
 @app.route("/api/debug")
 def debug_html():
     """Debug: run search logic and show what gets parsed."""
-    r = requests.get("https://z-lib.id/s?q=dune&extension=epub", headers=HEADERS, timeout=15)
+    r = requests.get(f"{ZLIB_BASE}/s?q=dune&extension=epub", headers=HEADERS, timeout=15)
     soup = BeautifulSoup(r.text, "lxml")
     output = [f"HTML size: {len(r.text)}, URL: {r.url}\n"]
     items = soup.select(".resItemBox")
@@ -210,7 +215,7 @@ def test_sources():
     """Test which sources are reachable from this server's IP."""
     results = {}
     tests = {
-        "zlib_id": "https://z-lib.id/s?q=dune&extension=epub",
+        "zlib_current": f"{ZLIB_BASE}/s?q=dune&extension=epub",
         "zlib_cv": "https://z-lib.cv/s?q=dune&extension=epub",
         "libgen_li": "https://libgen.li/index.php?req=dune&res=5",
         "libgen_rs": "https://libgen.rs/search.php?req=dune&res=5",
