@@ -8,7 +8,7 @@ import os
 app = Flask(__name__)
 
 # ── Source URLs — update here if a domain changes ────────────────────────────
-ZLIB_BASE = "https://z-lib.id"   # Change this if z-lib moves to a new domain
+ZLIB_BASE = "https://z-lib.cv"   # Change this if z-lib moves to a new domain
 # ─────────────────────────────────────────────────────────────────────────────
 
 HEADERS = {
@@ -26,7 +26,8 @@ def zlib_session():
     s.headers.update(HEADERS)
     cookie = os.environ.get("ZLIB_SESSION", "")
     if cookie:
-        s.cookies.set("z_lib_session", cookie, domain="z-lib.id")
+        domain = ZLIB_BASE.replace("https://", "").replace("http://", "")
+        s.cookies.set("z_lib_session", cookie, domain=domain)
     return s
 
 LANG_NAMES = {
