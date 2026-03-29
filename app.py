@@ -191,22 +191,14 @@ def proxy_download():
 
 @app.route("/api/debug")
 def debug_html():
-    """Debug: run search logic and show what gets parsed."""
-    r = requests.get(f"{ZLIB_BASE}/s?q=dune&extension=epub", headers=HEADERS, timeout=15)
+    """Debug: show all links on a z-lib book page."""
+    r = requests.get(f"{ZLIB_BASE}/book/dune-674762", headers=HEADERS, timeout=15)
     soup = BeautifulSoup(r.text, "lxml")
-    output = [f"HTML size: {len(r.text)}, URL: {r.url}\n"]
-    items = soup.select(".resItemBox")
-    output.append(f"resItemBox found: {len(items)}\n")
-    for i, item in enumerate(items[:3]):
-        title_el = item.select_one("h3[itemprop='name'] a, h3 a")
-        cover_img = item.select_one("img.cover, img[data-src]")
-        author_el = item.select_one(".authors, .itemAuthors, [itemprop='author']")
-        book_link = item.select_one("a[href^='/book/']")
-        output.append(f"\n--- Item {i+1} ---")
-        output.append(f"title_el: {title_el}")
-        output.append(f"book_link href: {book_link['href'] if book_link else None}")
-        output.append(f"cover data-src: {cover_img.get('data-src') if cover_img else None}")
-        output.append(f"author_el text: {author_el.get_text(strip=True)[:80] if author_el else None}")
+    output = [f"HTML size: {len(r.text)}, URL: {r.url}\n", "All hrefs containing 'dl', 'download', 'get':\n"]
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if any(x in href.lower() for x in ["/dl/", "download", "/get", "epub"]):
+            output.append(f"  text={a.get_text(strip=True)[:50]!r}  href={href}")
     return Response("\n".join(output), content_type="text/plain")
 
 

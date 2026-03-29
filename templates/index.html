@@ -444,7 +444,6 @@
       const panel = document.getElementById(`dl-${idx}`);
       const isOpen = panel.classList.contains('open');
 
-      // Close all
       document.querySelectorAll('.book-card.open').forEach(c => c.classList.remove('open'));
       document.querySelectorAll('.dl-panel.open').forEach(p => p.classList.remove('open'));
 
@@ -457,41 +456,34 @@
       panel.dataset.loaded = '1';
 
       try {
-        const params = new URLSearchParams({ slug: book.slug, book_id: book.book_id || '' });
-        const res = await fetch('/api/download?' + params);
+        const res = await fetch('/api/download?url=' + encodeURIComponent(book.book_url));
         const data = await res.json();
 
-        if (res.status === 403 && data.error === 'login_required') {
-          panel.innerHTML = `
-            <div class="dl-error">🔒 Compte Z-Library requis pour télécharger.</div>
-            <a class="dl-btn" href="${esc(book.detail_url)}" target="_blank">
-              <span class="dl-icon">🌐</span>
-              <span class="dl-text">Ouvrir sur Z-Library</span>
-            </a>`;
-          return;
-        }
-
-        if (data.error || !data.url) {
+        if (data.error || !data.links?.length) {
           panel.innerHTML = `
             <div class="dl-error">❌ Lien introuvable.</div>
-            <a class="dl-btn" href="${esc(book.detail_url)}" target="_blank">
+            <a class="dl-btn" href="${esc(book.book_url)}" target="_blank">
               <span class="dl-icon">🌐</span>
               <span class="dl-text">Ouvrir sur Z-Library</span>
             </a>`;
           return;
         }
 
-        const proxyUrl = '/api/proxy?url=' + encodeURIComponent(data.url);
-        panel.innerHTML = `
-          <a class="dl-btn" href="${esc(proxyUrl)}" download>
-            <span class="dl-icon">⬇️</span>
-            <span class="dl-text">Télécharger EPUB</span>
-          </a>
-          <a class="dl-btn" href="${esc(data.url)}" target="_blank">
-            <span class="dl-icon">🔗</span>
-            <span class="dl-text">Lien direct</span>
-          </a>
-        `;
+        let html = '';
+        data.links.forEach((link, i) => {
+          const proxyUrl = '/api/proxy?url=' + encodeURIComponent(link.url);
+          html += `
+            <a class="dl-btn" href="${esc(proxyUrl)}" download>
+              <span class="dl-icon">⬇️</span>
+              <span class="dl-text">${esc(link.label || 'Télécharger EPUB')}</span>
+            </a>`;
+        });
+        html += `
+          <a class="dl-btn" href="${esc(book.book_url)}" target="_blank" style="opacity:0.6">
+            <span class="dl-icon">🌐</span>
+            <span class="dl-text">Voir sur Z-Library</span>
+          </a>`;
+        panel.innerHTML = html;
       } catch {
         panel.innerHTML = `<div class="dl-error">❌ Erreur réseau.</div>`;
       }
