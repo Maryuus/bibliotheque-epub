@@ -4,103 +4,207 @@ from bs4 import BeautifulSoup
 import urllib.parse
 import re
 import os
+import asyncio
 import threading
 import time
 
+from playwright.async_api import async_playwright
+
 app = Flask(__name__)
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
-}
-
-ZLIB_BASE = "https://z-lib.cv"
-ZLIB_SESSION_COOKIE = os.environ.get("ZLIB_SESSION_COOKIE", "")
+ANNA_BASE = "https://annas-archive.gs"
 
 LANG_NAMES = {
     "fr": ["french", "français", "francais"],
     "en": ["english"],
 }
 
-_session = None
-_session_lock = threading.Lock()
+# ── Playwright browser (singleton) ──────────────────────────────────────────
+_pw_instance = None
+_browser = None
+_browser_lock = threading.Lock()
 
 
-def get_session():
-    """Return a session with the Z-Library session cookie set."""
-    global _session
-    with _session_lock:
-        if _session is None:
-            _session = requests.Session()
-            _session.headers.update(HEADERS)
-            if ZLIB_SESSION_COOKIE:
-                _session.cookies.set("z_lib_session", ZLIB_SESSION_COOKIE, domain="z-lib.cv")
-                print("[Session] Z-Library session cookie loaded")
-            else:
-                print("[Session] No Z-Library session cookie set")
-        return _session
-
-
-def search_zlib(title, author, lang):
-    """Search Z-Library for EPUB books."""
-    results = []
+def _get_or_create_loop():
     try:
-        query = f"{title} {author}".strip()
-        session = get_session()
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError("closed")
+        return loop
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
 
-        url = f"{ZLIB_BASE}/s?q={urllib.parse.quote(query)}&extension=epub"
-        resp = session.get(url, timeout=15)
-        resp.raise_for_status()
 
-        soup = BeautifulSoup(resp.text, "lxml")
-        items = soup.select(".resItemBox")
+def run_async(coro):
+    """Run an async coroutine from synchronous Flask code."""
+    loop = _get_or_create_loop()
+    return loop.run_until_complete(coro)
 
-        for item in items:
-            # Title + slug
-            title_link = item.select_one("h3 a, .book-title a, [itemprop='name'] a")
-            if not title_link:
+
+async def get_browser():
+    """Return a persistent Playwright browser (Chromium)."""
+    global _pw_instance, _browser
+    if _browser is None or not _browser.is_connected():
+        _pw_instance = await async_playwright().start()
+        _browser = await _pw_instance.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-extensions",
+                "--single-process",
+            ],
+        )
+        print("[Browser] Chromium launched")
+    return _browser
+
+
+async def new_stealth_page(browser):
+    """Create a new browser page with stealth settings."""
+    context = await browser.new_context(
+        user_agent=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        locale="fr-FR",
+        viewport={"width": 1280, "height": 800},
+        extra_http_headers={
+            "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+        },
+    )
+    # Hide navigator.webdriver
+    await context.add_init_script(
+        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    )
+    page = await context.new_page()
+    return context, page
+
+
+async def solve_challenge(page, target_url):
+    """Navigate to Anna's Archive, solve the JS challenge, reach target_url."""
+    challenge_url = (
+        f"{ANNA_BASE}/challenge?next={urllib.parse.quote(target_url)}"
+    )
+    await page.goto(challenge_url, wait_until="domcontentloaded", timeout=20000)
+
+    # Wait for the challenge JS to fire POST /challenge/ok and redirect
+    try:
+        await page.wait_for_url(
+            lambda url: "annas-archive" in url and "challenge" not in url,
+            timeout=8000,
+        )
+    except Exception:
+        # If no redirect happened, try navigating directly
+        await page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
+
+
+async def _search_annas(title, author, lang):
+    """Use Playwright to search Anna's Archive and return results."""
+    results = []
+    query = f"{title} {author}".strip()
+    lang_code = "fr" if lang == "fr" else "en"
+    search_url = (
+        f"{ANNA_BASE}/search"
+        f"?q={urllib.parse.quote(query)}"
+        f"&ext=epub&lang={lang_code}"
+    )
+
+    with _browser_lock:
+        browser = await get_browser()
+        context, page = await new_stealth_page(browser)
+
+    try:
+        await solve_challenge(page, search_url)
+        await page.wait_for_load_state("networkidle", timeout=10000)
+
+        content = await page.content()
+        soup = BeautifulSoup(content, "lxml")
+
+        # Extract result cards
+        seen_md5 = set()
+        for link in soup.select("a[href^='/md5/']"):
+            md5 = link["href"].replace("/md5/", "").strip("/")
+            if md5 in seen_md5 or not re.match(r"^[a-fA-F0-9]{32}$", md5):
                 continue
-            book_title = title_link.get_text(strip=True)
-            book_slug = title_link.get("href", "").lstrip("/")  # e.g. "book/some-slug"
+            seen_md5.add(md5)
 
-            # Book ID (for download URL)
-            book_id = item.get("data-book_id", "")
+            # Walk up to find the card container
+            card = link
+            for _ in range(5):
+                if card.parent:
+                    card = card.parent
+                if len(card.get_text()) > 50:
+                    break
 
-            # Author
-            author_links = item.select("a[href*='author=']")
-            book_author = ", ".join(a.get_text(strip=True) for a in author_links) or ""
+            title_el = link.select_one(".truncate, h3, [class*='title']") or link
+            book_title = title_el.get_text(strip=True)[:100]
+            if not book_title:
+                book_title = card.get_text(" ", strip=True)[:80]
 
-            # Year
-            year_el = item.select_one(".property_year .property_value")
-            year = year_el.get_text(strip=True) if year_el else ""
-
-            # Language
-            lang_el = item.select_one(".property_language .property_value")
-            language = lang_el.get_text(strip=True) if lang_el else ""
+            # Detect language from text
+            card_text = card.get_text(" ", strip=True).lower()
+            language = ""
+            if "french" in card_text or "français" in card_text:
+                language = "French"
+            elif "english" in card_text:
+                language = "English"
 
             # Cover
-            cover_img = item.select_one("img.cover, img.lazy")
+            cover_img = card.find("img")
             cover = ""
             if cover_img:
-                cover = cover_img.get("data-src") or cover_img.get("src") or ""
+                cover = cover_img.get("src") or cover_img.get("data-src") or ""
 
             results.append({
-                "source": "Z-Library",
-                "title": book_title[:100],
-                "author": book_author[:80],
-                "year": year,
+                "source": "Anna's Archive",
+                "title": book_title,
+                "author": "",
+                "year": "",
                 "language": language,
                 "size": "",
                 "ext": "EPUB",
-                "slug": book_slug,
-                "book_id": book_id,
+                "md5": md5,
                 "cover": cover,
-                "detail_url": f"{ZLIB_BASE}/{book_slug}",
+                "detail_url": f"{ANNA_BASE}/md5/{md5}",
             })
 
+        # If no lang results, try without lang filter
+        if not results:
+            search_url2 = (
+                f"{ANNA_BASE}/search"
+                f"?q={urllib.parse.quote(query)}&ext=epub"
+            )
+            await page.goto(search_url2, wait_until="networkidle", timeout=15000)
+            content2 = await page.content()
+            soup2 = BeautifulSoup(content2, "lxml")
+            for link in soup2.select("a[href^='/md5/']"):
+                md5 = link["href"].replace("/md5/", "").strip("/")
+                if md5 in seen_md5 or not re.match(r"^[a-fA-F0-9]{32}$", md5):
+                    continue
+                seen_md5.add(md5)
+                book_title = link.get_text(strip=True)[:100] or "Livre"
+                results.append({
+                    "source": "Anna's Archive",
+                    "title": book_title,
+                    "author": "",
+                    "year": "",
+                    "language": "",
+                    "size": "",
+                    "ext": "EPUB",
+                    "md5": md5,
+                    "cover": "",
+                    "detail_url": f"{ANNA_BASE}/md5/{md5}",
+                })
+
     except Exception as e:
-        print(f"[Z-Library search] Error: {e}")
+        print(f"[Anna's search] Error: {e}")
+    finally:
+        await context.close()
 
     # Sort preferred language first
     preferred = LANG_NAMES.get(lang, [])
@@ -110,44 +214,50 @@ def search_zlib(title, author, lang):
     return results
 
 
-def get_download_url(book_slug, book_id):
-    """
-    Get the direct EPUB download URL from Z-Library.
-    Fetches the book page as a logged-in user and extracts the download href.
-    """
-    if not ZLIB_SESSION_COOKIE:
-        return None, "login_required"
+async def _get_download_links(md5):
+    """Get EPUB download links from Anna's Archive MD5 page."""
+    links = []
+    detail_url = f"{ANNA_BASE}/md5/{md5}"
+
+    with _browser_lock:
+        browser = await get_browser()
+        context, page = await new_stealth_page(browser)
 
     try:
-        session = get_session()
+        await solve_challenge(page, detail_url)
+        await page.wait_for_load_state("networkidle", timeout=10000)
+        content = await page.content()
+        soup = BeautifulSoup(content, "lxml")
 
-        # Fetch the book page — when logged in, dlButton has the real href
-        book_page_url = f"{ZLIB_BASE}/{book_slug}"
-        r = session.get(book_page_url, timeout=12)
-
-        # Redirected to login = session expired
-        if "z-lib.cv/login" in r.url:
-            return None, "login_required"
-
-        soup = BeautifulSoup(r.text, "lxml")
-
-        # Find the download button — when authenticated href is the real download URL
-        dl_btn = soup.select_one("a.dlButton, a.btn-download, a[class*='dlButton']")
-        if dl_btn:
-            href = dl_btn.get("href", "")
-            # If still pointing to /login, session didn't authenticate
-            if href == "/login" or not href:
-                return None, "login_required"
-            if not href.startswith("http"):
-                href = ZLIB_BASE + href
-            return href, "ok"
-
-        return None, "not_found"
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            text = a.get_text(strip=True)
+            # IPFS, fast download, libgen mirrors
+            if any(
+                x in href
+                for x in [
+                    "/fast_download/",
+                    "/slow_download/",
+                    "ipfs",
+                    "libgen",
+                    "/download/",
+                ]
+            ):
+                if not href.startswith("http"):
+                    href = ANNA_BASE + href
+                label = text[:60] or href[:60]
+                if href not in [l["url"] for l in links]:
+                    links.append({"label": label, "url": href})
 
     except Exception as e:
-        print(f"[Download URL] Error: {e}")
-        return None, "error"
+        print(f"[Anna's download] Error: {e}")
+    finally:
+        await context.close()
 
+    return links[:5]
+
+
+# ── Flask routes ─────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -163,38 +273,43 @@ def search():
     if not title and not author:
         return jsonify({"error": "Veuillez saisir un titre ou un auteur"}), 400
 
-    results = search_zlib(title, author, lang)
-    return jsonify({"results": results, "count": len(results)})
+    try:
+        results = run_async(_search_annas(title, author, lang))
+        return jsonify({"results": results, "count": len(results)})
+    except Exception as e:
+        print(f"[search] Error: {e}")
+        return jsonify({"error": "Erreur de recherche", "results": [], "count": 0})
 
 
 @app.route("/api/download")
 def get_download():
-    slug = request.args.get("slug", "").strip()
-    book_id = request.args.get("book_id", "").strip()
+    md5 = request.args.get("md5", "").strip()
+    if not md5 or not re.match(r"^[a-fA-F0-9]{32}$", md5):
+        return jsonify({"error": "MD5 invalide"}), 400
 
-    if not slug:
-        return jsonify({"error": "Paramètre manquant"}), 400
-
-    url, status = get_download_url(slug, book_id)
-
-    if status == "login_required":
-        return jsonify({"error": "login_required"}), 403
-    if not url:
-        return jsonify({"error": "Lien introuvable"}), 404
-
-    return jsonify({"url": url})
+    try:
+        links = run_async(_get_download_links(md5))
+        if links:
+            return jsonify({"links": links})
+        return jsonify({"error": "Aucun lien trouvé"}), 404
+    except Exception as e:
+        print(f"[download] Error: {e}")
+        return jsonify({"error": "Erreur"}), 500
 
 
 @app.route("/api/proxy")
 def proxy_download():
-    """Proxy the download so the iPad receives the file directly."""
+    """Proxy an EPUB download so the iPad gets the file directly."""
     url = request.args.get("url", "")
-    if not url or not url.startswith(ZLIB_BASE):
+    allowed = ["annas-archive.gs", "ipfs.io", "cloudflare-ipfs.com", "libgen"]
+    if not url or not any(a in url for a in allowed):
         return "URL non autorisée", 403
 
     try:
-        session = get_session()
-        r = session.get(url, stream=True, timeout=60)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+        }
+        r = requests.get(url, headers=headers, stream=True, timeout=60)
         content_type = r.headers.get("Content-Type", "application/epub+zip")
         content_disp = r.headers.get(
             "Content-Disposition", "attachment; filename=book.epub"
@@ -210,6 +325,26 @@ def proxy_download():
             headers={
                 "Content-Type": content_type,
                 "Content-Disposition": content_disp,
+
+@app.route('/api/test')
+def test_sources():
+    import requests as req
+    hdrs = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36'}
+    tests = {
+        'libgen_li': 'https://libgen.li/index.php?req=dune&res=5&ext=epub',
+        'libgen_li_json': 'https://libgen.li/json.php?ids=1,2&fields=Title,MD5,Extension',
+        'annas_gs': 'https://annas-archive.gs/search?q=dune&ext=epub',
+    }
+    results = {}
+    for name, url in tests.items():
+        try:
+            r = req.get(url, headers=hdrs, timeout=8)
+            results[name] = f'{r.status_code} len={len(r.text)}'
+        except Exception as e:
+            results[name] = f'ERROR {str(e)[:60]}'
+    from flask import jsonify
+    return jsonify(results)
+
             },
         )
     except Exception as e:
