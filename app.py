@@ -106,18 +106,38 @@ def search_zlib(title, author, lang):
 
 
 def get_download_links(title, author):
-    """Return direct browser links for the user to download the book."""
+    """Search Open Library for a direct EPUB, fallback to browser links."""
+    links = []
+
+    # 1. Try Open Library (legitimate, accessible from Railway)
+    try:
+        q = urllib.parse.quote(f"{title} {author}".strip())
+        ol = requests.get(
+            f"https://openlibrary.org/search.json?q={q}&has_fulltext=true&limit=5&fields=key,title,ia",
+            timeout=8,
+        ).json()
+        for doc in ol.get("docs", []):
+            for ia_id in doc.get("ia", [])[:1]:
+                links.append({
+                    "label": f"Télécharger — Open Library (gratuit)",
+                    "url": f"https://archive.org/details/{ia_id}",
+                    "note": "Crée un compte gratuit sur archive.org si demandé",
+                })
+                break
+            if links:
+                break
+    except Exception as e:
+        print(f"[openlibrary] {e}")
+
+    # 2. Always add a libgen fallback (works from the user's browser)
     q = urllib.parse.quote(f"{title} {author}".strip())
-    return [
-        {
-            "label": "Libgen — Téléchargement direct",
-            "url": f"https://libgen.li/index.php?req={q}&res=25&ext=epub&filesuns=all",
-        },
-        {
-            "label": "Anna's Archive",
-            "url": f"https://annas-archive.gs/search?q={q}&ext=epub",
-        },
-    ]
+    links.append({
+        "label": "Libgen (ouvre dans ton navigateur)",
+        "url": f"https://libgen.li/index.php?req={q}&res=10&ext=epub&filesuns=all",
+        "note": "Clique sur le titre du livre → bouton vert GET → premier lien",
+    })
+
+    return links
 
 
 # ── Flask routes ──────────────────────────────────────────────────────────────

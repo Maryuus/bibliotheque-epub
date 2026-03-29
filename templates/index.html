@@ -289,6 +289,7 @@
     .dl-btn:active { background: var(--accent-dim); border-color: var(--accent); }
     .dl-btn .dl-icon { font-size: 18px; flex-shrink: 0; }
     .dl-btn .dl-text { flex: 1; }
+    .dl-note { font-size: 11px; color: var(--text2); margin-top: 2px; }
     .dl-btn .dl-size { font-size: 12px; color: var(--text2); flex-shrink: 0; }
 
     .dl-error {
@@ -465,7 +466,10 @@
           html += `
             <a class="dl-btn" href="${esc(link.url)}" target="_blank" rel="noopener noreferrer">
               <span class="dl-icon">⬇️</span>
-              <span class="dl-text">${esc(link.label)}</span>
+              <div>
+                <div class="dl-text">${esc(link.label)}</div>
+                ${link.note ? `<div class="dl-note">${esc(link.note)}</div>` : ''}
+              </div>
             </a>`;
         });
         if (!html) {
