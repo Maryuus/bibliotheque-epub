@@ -281,7 +281,14 @@ def tor_test():
         soup = BeautifulSoup(r.text, "lxml")
         rows = soup.select("table.c tr")
         out.append(f"table rows found: {len(rows)}")
-        out.append(f"HTML snippet: {r.text[2000:3000]}")
+        # Find all tables and their classes
+        for t in soup.find_all("table"):
+            out.append(f"table class={t.get('class')} rows={len(t.find_all('tr'))}")
+        # Look for any md5 links
+        md5_links = soup.select("a[href*='md5']")
+        out.append(f"md5 links: {len(md5_links)}")
+        for a in md5_links[:3]:
+            out.append(f"  {a.get('href','')[:80]} — {a.get_text(strip=True)[:40]}")
     except Exception as e:
         out.append(f"libgen via Tor error: {e}")
     return Response("\n".join(out), content_type="text/plain")
